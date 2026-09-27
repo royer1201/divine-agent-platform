@@ -29,10 +29,24 @@ jobs:
 
       - name: terraform validate
         run: |
+          rc=0
           for dir in infra/bootstrap infra/environment; do
             terraform -chdir="$dir" init -backend=false -input=false
-            terraform -chdir="$dir" validate
+            terraform -chdir="$dir" validate -json > validate.json || rc=1
+            # Errors and deprecation warnings become PR annotations on the offending line.
+            jq -r '.diagnostics[] | [
+                (if .severity == "error" then "error" else "warning" end),
+                (.range.filename // ""),
+                ((.range.start.line // 1) | tostring),
+                (.summary + ": " + ((.detail // "") | gsub("\n"; " ")))
+              ] | @tsv' validate.json |
+            while IFS=$'\t' read -r sev file line msg; do
+              [ -n "$file" ] && file="$(realpath -m --relative-to=. "$dir/$file")"
+              echo "::${sev} file=${file},line=${line}::${msg}"
+            done
           done
+          rm -f validate.json
+          exit "$rc"
 
       - name: Secret scan (gitleaks)
         run: |

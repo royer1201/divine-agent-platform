@@ -59,6 +59,15 @@ jobs:
       TF_VAR_alert_email: ${{ secrets.alert_email }}
       ENVIRONMENT: ${{ inputs.environment }}
     steps:
+      # Fail in seconds with an actionable message instead of a provider
+      # validation error deep inside `terraform plan`.
+      - name: Check required secrets
+        run: |
+          if [ -z "${TF_VAR_alert_email}" ]; then
+            echo "::error title=ALERT_EMAIL secret missing::Set it once with: gh secret set ALERT_EMAIL"
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v4
