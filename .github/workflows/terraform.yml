@@ -60,7 +60,7 @@ jobs:
       TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
       ENVIRONMENT: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v3
         with:
