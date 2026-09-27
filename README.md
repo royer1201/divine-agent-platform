@@ -6,6 +6,9 @@ zero. Everything is Terraform, deployed by GitHub Actions over OIDC, with **no
 secrets in the repo, in GitHub, or in app config**: every hop authenticates with
 Microsoft Entra ID (managed identities / workload identity federation).
 
+> **Reviewers:** start with [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — requirement map, security
+> model, and the results of the end-to-end run on a real Azure subscription.
+
 ## Architecture
 
 ```mermaid
