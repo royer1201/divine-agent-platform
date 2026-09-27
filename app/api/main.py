@@ -4,12 +4,13 @@ Auth to Service Bus is Microsoft Entra ID via the container app's user-assigned
 managed identity (AZURE_CLIENT_ID). There is no connection string anywhere.
 """
 
+import asyncio
 import json
 import logging
 import os
 import sys
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 
 from azure.identity.aio import DefaultAzureCredential
@@ -39,16 +40,18 @@ def jlog(level: int, **fields) -> None:
 async def lifespan(app: FastAPI):
     # DefaultAzureCredential -> ManagedIdentityCredential in Azure (uses AZURE_CLIENT_ID
     # to pick the user-assigned identity), `az login` credentials on a laptop.
-    credential = DefaultAzureCredential()
-    client = ServiceBusClient(fully_qualified_namespace=SERVICEBUS_FQDN, credential=credential)
-    app.state.sender = client.get_queue_sender(queue_name=SERVICEBUS_QUEUE)
-    jlog(logging.INFO, event="startup", namespace=SERVICEBUS_FQDN, queue=SERVICEBUS_QUEUE)
-    try:
+    async with AsyncExitStack() as stack:
+        credential = await stack.enter_async_context(DefaultAzureCredential())
+        client = await stack.enter_async_context(
+            ServiceBusClient(fully_qualified_namespace=SERVICEBUS_FQDN, credential=credential)
+        )
+        # Open the AMQP link once at startup. A lazily opened sender races when many
+        # requests arrive at once on a cold replica ("client_ready_async" on None).
+        app.state.sender = await stack.enter_async_context(client.get_queue_sender(queue_name=SERVICEBUS_QUEUE))
+        # One link per replica; the SDK handler is not safe for concurrent sends.
+        app.state.send_lock = asyncio.Lock()
+        jlog(logging.INFO, event="startup", namespace=SERVICEBUS_FQDN, queue=SERVICEBUS_QUEUE)
         yield
-    finally:
-        await app.state.sender.close()
-        await client.close()
-        await credential.close()
 
 
 app = FastAPI(title="divine-webhook-api", lifespan=lifespan)
@@ -77,12 +80,8 @@ async def webhook_message(request: Request) -> dict:
         "received_at": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
     }
-    await request.app.state.sender.send_messages(
-        ServiceBusMessage(
-            json.dumps(envelope),
-            message_id=message_id,
-            content_type="application/json",
-        )
-    )
+    message = ServiceBusMessage(json.dumps(envelope), message_id=message_id, content_type="application/json")
+    async with request.app.state.send_lock:
+        await request.app.state.sender.send_messages(message)
     jlog(logging.INFO, event="enqueued", message_id=message_id)
     return {"status": "queued", "message_id": message_id}
