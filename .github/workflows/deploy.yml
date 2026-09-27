@@ -28,7 +28,7 @@ jobs:
     env:
       IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/${{ matrix.component }}:${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # OIDC login as the build identity: it holds AcrPush on the registry and nothing else.
       - uses: azure/login@v2
