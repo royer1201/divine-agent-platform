@@ -21,6 +21,8 @@ concurrency:
 jobs:
   build:
     name: build ${{ matrix.component }}
+    # Skip cleanly until bootstrap has been run and the repository variables exist.
+    if: vars.ACR_NAME != ''
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -51,8 +53,10 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
+      # Unprefixed trivy-action tags were deleted after the 2026 tag-hijack incident
+      # (GHSA-69fq-xp46-6x23). In production, pin every third-party action to a commit SHA.
       - name: Scan for fixable critical CVEs
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: ${{ env.IMAGE }}
           severity: CRITICAL

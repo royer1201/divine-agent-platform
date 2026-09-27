@@ -44,8 +44,9 @@ jobs:
 
   plan-dev:
     needs: static-checks
-    # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan,
+    # and only once bootstrap has configured the repository variables.
+    if: github.event.pull_request.head.repo.full_name == github.repository && vars.AZURE_CLIENT_ID_DEV != ''
     uses: ./.github/workflows/terraform.yml
     with:
       environment: dev
