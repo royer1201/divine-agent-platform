@@ -42,3 +42,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "alert_email" {
+  description = "Receives budget alerts; also printed into the GitHub setup commands for the DLQ alert."
+  type        = string
+}
+
+variable "monthly_budget" {
+  description = "Monthly subscription budget in the billing currency."
+  type        = number
+  default     = 10
+}

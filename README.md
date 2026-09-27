@@ -19,6 +19,7 @@ flowchart LR
         end
         sb[("Service Bus queue<br/>inbound-messages<br/>+ dead-letter queue")]
         kv["Key Vault<br/>ai-api-key"]
+        cosmos[("Cosmos DB serverless<br/>messages")]
         law["Log Analytics"]
         alert["Metric alert<br/>DeadletteredMessages above 0"]
         ag["Action group<br/>email"]
@@ -34,6 +35,7 @@ flowchart LR
     sb -->|"receive (MI: Data Receiver)"| worker
     sb -. "queue length (MI: scaler identity)" .-> worker
     kv -->|"Key Vault reference (MI)"| worker
+    worker -->|"upsert by message_id (MI)"| cosmos
     acr -->|"AcrPull (MI)"| cae
     cae --> law
     kv -->|audit logs| law
@@ -57,6 +59,7 @@ flowchart LR
 | KEDA scaling on queue length, incl. scale to zero | `azure-servicebus` custom scale rule, `minReplicas = 0`, authenticated with a managed identity |
 | CI/CD: build + push to ACR, deploy to Container Apps, OIDC | [`.github/workflows`](.github/workflows): `deploy.yml` → `terraform.yml` |
 | Alert on DLQ accumulation | [`modules/dlq_alert`](infra/modules/dlq_alert): `DeadletteredMessages` (max) > 0 over 5 min, per queue |
+| Bonus: persist messages to a database | [`modules/cosmos_db`](infra/modules/cosmos_db): serverless Cosmos DB, account keys disabled, worker writes with its managed identity (Cosmos data-plane RBAC scoped to the container); `id = message_id` makes redeliveries idempotent |
 | Bonus: separate dev and prod | Separate resource groups, state containers, tfvars, deployer identities and GitHub environments (prod behind required reviewers) |
 
 ## Security model
@@ -69,7 +72,7 @@ All permissions are declared in two files: [`infra/bootstrap/github-oidc.tf`](in
 | Identity | Role | Scope |
 |---|---|---|
 | `id-divine-api-<env>` | AcrPull · Azure Service Bus Data Sender | registry · the queue |
-| `id-divine-worker-<env>` | AcrPull · Azure Service Bus Data Receiver · Key Vault Secrets User | registry · the queue · the one secret |
+| `id-divine-worker-<env>` | AcrPull · Azure Service Bus Data Receiver · Key Vault Secrets User · Cosmos DB Built-in Data Contributor | registry · the queue · the one secret · the messages container |
 | `id-divine-scaler-<env>` | Azure Service Bus Data Owner | the queue |
 
 The KEDA scaler reads queue runtime properties, which needs the *Manage* claim. It gets
@@ -119,20 +122,17 @@ scripts/          bootstrap.sh, send-test-messages.sh
 
 ```bash
 az login
-GITHUB_REPOSITORY=<owner>/<repo> ./scripts/bootstrap.sh
+GITHUB_REPOSITORY=<owner>/<repo> ALERT_EMAIL=<you@example.com> ./scripts/bootstrap.sh
 ```
 
-This registers the resource providers and applies `infra/bootstrap`. It ends by printing
-`gh variable set ...` commands.
+This registers the resource providers and applies `infra/bootstrap`, including a **$10/month
+subscription budget** that emails you at 50% actual and 100% forecast spend. It ends by
+printing `gh` commands. (Azure Cloud Shell works too: it already has `az`, `terraform` and `gh`.)
 
 ### 2. Configure GitHub (once)
 
-Run the printed commands in your clone, set your email for alerts, and protect prod:
-
-```bash
-gh variable set ALERT_EMAIL --body "oncall@example.com"
-# GitHub > Settings > Environments > prod > Required reviewers
-```
+Run the printed commands in your clone (`gh auth login` first). They set the repository
+variables, create the `dev` and `prod` environments and make you a required reviewer for prod.
 
 Every value is a non-secret identifier (tenant, subscription, client IDs, resource names),
 so they are repository **variables**. The repository has zero GitHub secrets.
@@ -246,9 +246,10 @@ I would put the platform on a private network: a VNet-integrated Container Apps 
 (workload profiles) with Private Endpoints and private DNS for Service Bus (Premium), Key Vault,
 ACR (Premium) and state storage, public network access disabled everywhere, and only the API
 exposed through Azure Front Door with WAF, request-signature validation for the WhatsApp/telephony
-webhooks and rate limiting. Messages would be persisted (Cosmos DB or PostgreSQL with managed
-identity auth) and processing made idempotent on `message_id` with Service Bus duplicate
-detection, plus sessions if per-conversation ordering matters. Observability would go beyond one
+webhooks and rate limiting. Persistence would move from serverless to provisioned autoscale Cosmos DB with a private
+endpoint, the API would stamp a channel-provided idempotency key so Service Bus duplicate
+detection catches webhook retries before they reach the worker, and sessions keyed by
+conversation would preserve per-customer ordering. Observability would go beyond one
 alert: Application Insights with OpenTelemetry tracing from webhook to worker, dashboards and SLO
 alerts on end-to-end latency, queue age and error rate, routed to an on-call tool rather than
 email. On the delivery side: Terraform state for bootstrap moved to remote state as well, a
@@ -265,6 +266,7 @@ Service Bus, tested restore of state and data).
 | Container Apps (consumption, scale to zero) | ~$0 within the monthly free grant; prod keeps 1 warm API replica ≈ $10–15 |
 | Log Analytics | first 5 GB/month free, then ~$2.3/GB (dev capped at 1 GB/day) |
 | Key Vault | cents (per 10k operations) |
+| Cosmos DB serverless | ~$0 at demo volume (billed per request unit, nothing when idle) |
 | Shared: ACR Basic + state storage | ~$5 once, not per environment |
 
 The private-network version above changes the picture mostly through Service Bus Premium

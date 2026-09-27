@@ -30,3 +30,7 @@ output "log_analytics_workspace_id" {
   description = "Workspace GUID for `az monitor log-analytics query -w`."
   value       = module.log_analytics.workspace_id
 }
+
+output "cosmos_endpoint" {
+  value = module.cosmos_db.endpoint
+}

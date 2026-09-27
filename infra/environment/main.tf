@@ -5,6 +5,7 @@
 #                                           |  \__ KEDA scaler (queue length)
 #                                           +-- DLQ --> metric alert --> email
 #   Worker <-- AI_API_KEY (Key Vault reference, managed identity)
+#   Worker --> Cosmos DB (upsert by message_id, managed identity)
 #   All logs --> Log Analytics
 
 data "azurerm_resource_group" "this" {
@@ -79,6 +80,20 @@ module "key_vault" {
   purge_protection_enabled   = var.key_vault_purge_protection
   log_analytics_workspace_id = module.log_analytics.id
   tags                       = local.tags
+}
+
+# Bonus: every processed message is persisted. Serverless, Entra ID only.
+module "cosmos_db" {
+  source = "../modules/cosmos_db"
+
+  name                = "cosmos-${local.name}-${local.suffix}"
+  resource_group_name = data.azurerm_resource_group.this.name
+  location            = local.location
+  tags                = local.tags
+
+  data_contributor_principal_ids = {
+    worker = module.worker_identity.principal_id
+  }
 }
 
 module "dlq_alert" {

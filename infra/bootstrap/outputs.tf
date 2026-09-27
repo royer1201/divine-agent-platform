@@ -47,7 +47,8 @@ output "github_setup_commands" {
       "gh api --method PUT \"repos/${var.github_repository}/environments/${env}\" >/dev/null"
     ],
     [
-      "gh variable set ALERT_EMAIL --body 'you@example.com'   # <- change me",
+      "gh variable set ALERT_EMAIL --body '${var.alert_email}'",
+      "echo '{\"reviewers\":[{\"type\":\"User\",\"id\":'\"$(gh api user -q .id)\"'}]}' | gh api --method PUT \"repos/${var.github_repository}/environments/prod\" --input - >/dev/null",
     ],
   ))
 }

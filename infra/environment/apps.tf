@@ -67,6 +67,9 @@ module "worker" {
   env = concat(local.common_env, [
     { name = "AZURE_CLIENT_ID", value = module.worker_identity.client_id },
     { name = "AI_API_KEY", secretRef = local.ai_api_key_secret_name },
+    { name = "COSMOS_ENDPOINT", value = module.cosmos_db.endpoint },
+    { name = "COSMOS_DATABASE", value = module.cosmos_db.database_name },
+    { name = "COSMOS_CONTAINER", value = module.cosmos_db.container_name },
   ])
 
   # KEDA azure-servicebus scaler, authenticated with the scaler's managed identity.
@@ -89,5 +92,5 @@ module "worker" {
     },
   ]
 
-  depends_on = [time_sleep.rbac_propagation]
+  depends_on = [time_sleep.rbac_propagation, module.cosmos_db]
 }
