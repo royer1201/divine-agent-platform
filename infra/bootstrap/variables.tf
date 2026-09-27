@@ -37,6 +37,15 @@ variable "github_repository" {
   }
 }
 
+# New GitHub repositories put immutable IDs in the OIDC `sub` claim, e.g.
+# "owner@123/repo@456" (scripts/bootstrap.sh looks them up with gh). Trusting IDs
+# means a renamed or deleted-and-recreated repo cannot inherit Azure access.
+variable "github_oidc_repository" {
+  description = "Repository part of the GitHub OIDC sub claim; null = legacy owner/repo form."
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "Extra tags applied to every resource."
   type        = map(string)

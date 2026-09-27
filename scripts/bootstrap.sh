@@ -6,6 +6,7 @@
 #   3. prints the `gh` commands that configure the repository variables
 #
 # Usage: GITHUB_REPOSITORY=owner/repo ALERT_EMAIL=you@example.com ./scripts/bootstrap.sh
+# Needs: az (Owner on the subscription), terraform, gh (logged in). Azure Cloud Shell has all three.
 set -euo pipefail
 
 : "${GITHUB_REPOSITORY:?set GITHUB_REPOSITORY=owner/repo}"
@@ -26,10 +27,15 @@ for ns in Microsoft.App Microsoft.ContainerRegistry Microsoft.ServiceBus Microso
   az provider register --namespace "${ns}" --wait
 done
 
+# GitHub OIDC subjects now carry immutable owner/repo IDs ("owner@123/repo@456").
+OIDC_REPO="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '"\(.owner.login)@\(.owner.id)/\(.name)@\(.id)"')"
+echo "OIDC subject repository: ${OIDC_REPO}"
+
 cd "${ROOT}/infra/bootstrap"
 terraform init -input=false
 terraform apply -input=false \
   -var "github_repository=${GITHUB_REPOSITORY}" \
+  -var "github_oidc_repository=${OIDC_REPO}" \
   -var "alert_email=${ALERT_EMAIL}"
 
 echo

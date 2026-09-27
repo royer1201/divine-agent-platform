@@ -9,6 +9,7 @@
 locals {
   github_issuer   = "https://token.actions.githubusercontent.com"
   github_audience = ["api://AzureADTokenExchange"]
+  oidc_repo       = coalesce(var.github_oidc_repository, var.github_repository)
 
   # Built-in role definition IDs (identical in every tenant).
   role_ids = {
@@ -73,7 +74,7 @@ resource "azurerm_federated_identity_credential" "github_build_main" {
   parent_id           = azurerm_user_assigned_identity.github_build.id
   issuer              = local.github_issuer
   audience            = local.github_audience
-  subject             = "repo:${var.github_repository}:ref:refs/heads/main"
+  subject             = "repo:${local.oidc_repo}:ref:refs/heads/main"
 }
 
 # `az acr login` resolves the registry through ARM first, which AcrPush does not cover.
@@ -112,7 +113,7 @@ resource "azurerm_federated_identity_credential" "github_deploy_environment" {
   parent_id           = azurerm_user_assigned_identity.github_deploy[each.key].id
   issuer              = local.github_issuer
   audience            = local.github_audience
-  subject             = "repo:${var.github_repository}:environment:${each.key}"
+  subject             = "repo:${local.oidc_repo}:environment:${each.key}"
 }
 
 # Pull requests run `terraform plan` against the plan environment. Azure rejects
@@ -123,7 +124,7 @@ resource "azurerm_federated_identity_credential" "github_deploy_pull_request" {
   parent_id           = azurerm_user_assigned_identity.github_deploy[var.plan_environment].id
   issuer              = local.github_issuer
   audience            = local.github_audience
-  subject             = "repo:${var.github_repository}:pull_request"
+  subject             = "repo:${local.oidc_repo}:pull_request"
 
   depends_on = [azurerm_federated_identity_credential.github_deploy_environment]
 }

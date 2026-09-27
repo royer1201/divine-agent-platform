@@ -84,6 +84,10 @@ no app registration, no client secret, no Entra ID directory permissions):
 | Identity | Trusted subject | Can do |
 |---|---|---|
 | `id-divine-github-build` | `ref:refs/heads/main` | push images to ACR |
+
+Subjects are pinned to GitHub's **immutable IDs** (`repo:owner@<id>/repo@<id>:...`), so a renamed,
+deleted-and-recreated or squatted repository with the same name cannot obtain these identities.
+
 | `id-divine-github-dev` | `environment:dev`, `pull_request` | manage `rg-divine-dev`, its own state container |
 | `id-divine-github-prod` | `environment:prod` | manage `rg-divine-prod`, its own state container |
 
@@ -117,6 +121,7 @@ scripts/          bootstrap.sh, send-test-messages.sh
 
 - Azure subscription where you are **Owner** (the bootstrap creates role assignments)
 - `az` CLI (logged in), Terraform >= 1.9, `gh` CLI (logged in), a GitHub repo for this code
+  (Azure Cloud Shell has all three)
 
 ### 1. Bootstrap (once, from your laptop)
 
