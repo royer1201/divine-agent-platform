@@ -1,18 +1,35 @@
 version: 2
+# One grouped PR per ecosystem per week instead of one PR per package.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: pip
     directories: [/app/api, /app/worker]
     schedule:
       interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
   - package-ecosystem: docker
     directories: [/app/api, /app/worker]
     schedule:
       interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
   - package-ecosystem: terraform
     directories: [/infra/bootstrap, /infra/environment]
     schedule:
       interval: weekly
+    # Provider major versions (azurerm 5.x) are upgraded deliberately, not by a bot.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      terraform:
+        patterns: ["*"]

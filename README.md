@@ -252,7 +252,7 @@ detection, plus sessions if per-conversation ordering matters. Observability wou
 alert: Application Insights with OpenTelemetry tracing from webhook to worker, dashboards and SLO
 alerts on end-to-end latency, queue age and error rate, routed to an on-call tool rather than
 email. On the delivery side: Terraform state for bootstrap moved to remote state as well, a
-read-only plan identity for PRs, policy-as-code (Checkov/Azure Policy) and image signing in CI,
+read-only plan identity for PRs, every third-party GitHub Action pinned to a commit SHA (tag hijacks such as the 2026 trivy-action incident are a real supply-chain vector), policy-as-code (Checkov/Azure Policy) and image signing in CI,
 Key Vault write-only secret attributes so not even a placeholder lands in state, revision-based
 canary rollouts for the API, and a documented DR posture (zone redundancy, geo-DR pairing for
 Service Bus, tested restore of state and data).

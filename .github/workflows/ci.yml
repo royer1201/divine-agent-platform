@@ -17,7 +17,7 @@ jobs:
   static-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -35,7 +35,19 @@ jobs:
           done
 
       - name: Secret scan (gitleaks)
-        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 detect --source=/repo --no-git --redact --no-banner -v
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 detect \
+            --source=/repo --config=/repo/.gitleaks.toml --no-git --redact --no-banner \
+            --report-format=json --report-path=/repo/gitleaks-report.json
+          rc=$?
+          set -e
+          # Surface each finding as a PR annotation on the offending line.
+          if [ -s gitleaks-report.json ]; then
+            jq -r '.[] | "::error file=\(.File | ltrimstr("/repo/")),line=\(.StartLine)::gitleaks rule \(.RuleID)"' gitleaks-report.json
+          fi
+          [ "$rc" -eq 0 ] || echo "::error::gitleaks exited with code $rc"
+          exit "$rc"
 
       - name: Build images (no push)
         run: |
@@ -44,8 +56,9 @@ jobs:
 
   plan-dev:
     needs: static-checks
-    # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan,
+    # and only once bootstrap has configured the repository variables.
+    if: github.event.pull_request.head.repo.full_name == github.repository && vars.AZURE_CLIENT_ID_DEV != ''
     uses: ./.github/workflows/terraform.yml
     with:
       environment: dev
