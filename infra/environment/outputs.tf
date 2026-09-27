@@ -1,5 +1,8 @@
+# Sensitive so `terraform apply` does not print the public webhook URL into the run log.
+# `terraform output -raw api_url` still returns it.
 output "api_url" {
-  value = "https://${module.api.fqdn}"
+  value     = "https://${module.api.fqdn}"
+  sensitive = true
 }
 
 output "resource_group_name" {

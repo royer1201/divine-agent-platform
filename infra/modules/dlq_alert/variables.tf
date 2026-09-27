@@ -15,8 +15,9 @@ variable "queue_names" {
 }
 
 variable "alert_email" {
-  description = "Where the alert is sent. Not a secret, but kept out of git and passed in by the pipeline."
+  description = "Where the alert is sent. Not a credential, but personal data: kept out of git and out of run logs."
   type        = string
+  sensitive   = true
 }
 
 variable "threshold" {

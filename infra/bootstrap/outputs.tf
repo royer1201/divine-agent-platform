@@ -26,8 +26,11 @@ output "github_deploy_client_ids" {
   value = { for env, id in azurerm_user_assigned_identity.github_deploy : env => id.client_id }
 }
 
-# Everything GitHub needs is a non-secret identifier, so it goes into repository
-# *variables*, not secrets. Paste this into a shell inside the repo clone.
+# Everything Azure needs is a non-secret identifier, so it goes into repository
+# *variables*. The one GitHub secret is the alert email: not a credential, but
+# personal data that must not show up in the public run logs (secrets are masked).
+# Both environments only accept deployments from main, so pushing a branch cannot
+# obtain an environment-scoped OIDC token. Paste this into a shell inside the clone.
 output "github_setup_commands" {
   value = join("\n", concat(
     [
@@ -42,13 +45,15 @@ output "github_setup_commands" {
       for env, id in azurerm_user_assigned_identity.github_deploy :
       "gh variable set AZURE_CLIENT_ID_${upper(env)} --body '${id.client_id}'"
     ],
+    flatten([
+      for env in var.environments : [
+        "echo '{\"deployment_branch_policy\":{\"protected_branches\":false,\"custom_branch_policies\":true}}' | gh api --method PUT \"repos/${var.github_repository}/environments/${env}\" --input - >/dev/null",
+        "gh api --method POST \"repos/${var.github_repository}/environments/${env}/deployment-branch-policies\" -f name=main >/dev/null",
+      ]
+    ]),
     [
-      for env in var.environments :
-      "gh api --method PUT \"repos/${var.github_repository}/environments/${env}\" >/dev/null"
-    ],
-    [
-      "gh variable set ALERT_EMAIL --body '${var.alert_email}'",
-      "echo '{\"reviewers\":[{\"type\":\"User\",\"id\":'\"$(gh api user -q .id)\"'}]}' | gh api --method PUT \"repos/${var.github_repository}/environments/prod\" --input - >/dev/null",
+      "gh secret set ALERT_EMAIL --body '${var.alert_email}'",
+      "echo '{\"reviewers\":[{\"type\":\"User\",\"id\":'\"$(gh api user -q .id)\"'}],\"deployment_branch_policy\":{\"protected_branches\":false,\"custom_branch_policies\":true}}' | gh api --method PUT \"repos/${var.github_repository}/environments/prod\" --input - >/dev/null",
     ],
   ))
 }

@@ -57,11 +57,17 @@ jobs:
   plan-dev:
     needs: static-checks
     # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan,
-    # and only once bootstrap has configured the repository variables.
-    if: github.event.pull_request.head.repo.full_name == github.repository && vars.AZURE_CLIENT_ID_DEV != ''
+    # and only once bootstrap has configured the repository variables. Dependabot
+    # runs get neither Actions secrets nor an OIDC token, so they skip the plan too.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      vars.AZURE_CLIENT_ID_DEV != ''
     uses: ./.github/workflows/terraform.yml
     with:
       environment: dev
       action: plan
       image_tag: ${{ github.event.pull_request.head.sha }}
       client_id: ${{ vars.AZURE_CLIENT_ID_DEV }}
+    secrets:
+      alert_email: ${{ secrets.ALERT_EMAIL }}

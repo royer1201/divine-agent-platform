@@ -29,8 +29,9 @@ variable "image_tag" {
 }
 
 variable "alert_email" {
-  description = "Recipient of the dead-letter alert."
+  description = "Recipient of the dead-letter alert. Sensitive so it stays out of plans published to public run logs."
   type        = string
+  sensitive   = true
 }
 
 # --- Service Bus -----------------------------------------------------------
