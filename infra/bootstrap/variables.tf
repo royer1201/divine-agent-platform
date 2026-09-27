@@ -37,6 +37,17 @@ variable "github_repository" {
   }
 }
 
+variable "github_oidc_repository" {
+  description = <<-EOT
+    Repository part of the GitHub OIDC `sub` claim. New repositories use immutable IDs,
+    e.g. "owner@123/repo@456" (scripts/bootstrap.sh looks them up with gh). Pinning the
+    trust to IDs means a deleted-and-recreated or renamed repo cannot inherit Azure access.
+    null = legacy name-based subject ("owner/repo").
+  EOT
+  type    = string
+  default = null
+}
+
 variable "tags" {
   description = "Extra tags applied to every resource."
   type        = map(string)
