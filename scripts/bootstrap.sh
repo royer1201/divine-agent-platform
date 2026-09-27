@@ -5,10 +5,11 @@
 #      GitHub OIDC identities + least-privilege RBAC)
 #   3. prints the `gh` commands that configure the repository variables
 #
-# Usage: GITHUB_REPOSITORY=owner/repo ./scripts/bootstrap.sh
+# Usage: GITHUB_REPOSITORY=owner/repo ALERT_EMAIL=you@example.com ./scripts/bootstrap.sh
 set -euo pipefail
 
 : "${GITHUB_REPOSITORY:?set GITHUB_REPOSITORY=owner/repo}"
+: "${ALERT_EMAIL:?set ALERT_EMAIL=you@example.com}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -19,17 +20,20 @@ read -r -p "Bootstrap into this subscription? [y/N] " answer
 export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
 for ns in Microsoft.App Microsoft.ContainerRegistry Microsoft.ServiceBus Microsoft.KeyVault \
-          Microsoft.OperationalInsights Microsoft.Insights Microsoft.ManagedIdentity Microsoft.Storage; do
+          Microsoft.OperationalInsights Microsoft.Insights Microsoft.ManagedIdentity Microsoft.Storage \
+          Microsoft.DocumentDB Microsoft.Consumption; do
   echo "Registering ${ns}..."
   az provider register --namespace "${ns}" --wait
 done
 
 cd "${ROOT}/infra/bootstrap"
 terraform init -input=false
-terraform apply -input=false -var "github_repository=${GITHUB_REPOSITORY}"
+terraform apply -input=false \
+  -var "github_repository=${GITHUB_REPOSITORY}" \
+  -var "alert_email=${ALERT_EMAIL}"
 
 echo
 echo "==> Run these inside your clone to configure GitHub (requires gh auth login):"
 terraform output -raw github_setup_commands
 echo
-echo "==> Then in GitHub: Settings > Environments > prod > add Required reviewers."
+echo "(The last command makes you a required reviewer for the prod environment.)"

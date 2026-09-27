@@ -4,6 +4,8 @@
 - AI_API_KEY: injected by Container Apps from a Key Vault *reference* that is resolved
   with the same managed identity. The code never sees Key Vault credentials and never
   logs the value, only a short fingerprint so rotation can be verified.
+- Persistence (bonus): each message is upserted into Cosmos DB with id = message_id,
+  so a Service Bus redelivery overwrites instead of duplicating. Also Entra ID only.
 - Scaling is external (KEDA on queue length, min replicas = 0), so the process just
   loops until SIGTERM and then finishes the in-flight batch.
 """
@@ -15,6 +17,7 @@ import os
 import signal
 import sys
 
+from azure.cosmos import CosmosClient
 from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient
 
@@ -22,6 +25,9 @@ SERVICEBUS_FQDN = os.environ["SERVICEBUS_FQDN"]
 SERVICEBUS_QUEUE = os.environ["SERVICEBUS_QUEUE"]
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
+COSMOS_ENDPOINT = os.getenv("COSMOS_ENDPOINT")  # optional: persistence is skipped if unset
+COSMOS_DATABASE = os.getenv("COSMOS_DATABASE", "agent-platform")
+COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER", "messages")
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -44,13 +50,21 @@ def _stop(signum, _frame) -> None:
     jlog(logging.INFO, event="shutdown_requested", signal=signum)
 
 
-def process(body: dict) -> None:
+def process(body: dict, store) -> None:
     """Stand-in for the real AI agent call."""
     payload = body.get("payload", {})
     if isinstance(payload, dict) and payload.get("simulate_failure"):
         # Lets you exercise the retry -> dead-letter -> alert path end to end.
         raise RuntimeError("simulated processing failure")
-    jlog(logging.INFO, event="message_processed", message_id=body.get("message_id"), payload=payload)
+    if store is not None:
+        store.upsert_item({"id": body["message_id"], **body})
+    jlog(
+        logging.INFO,
+        event="message_processed",
+        message_id=body.get("message_id"),
+        persisted=store is not None,
+        payload=payload,
+    )
 
 
 def main() -> None:
@@ -64,6 +78,14 @@ def main() -> None:
         jlog(logging.WARNING, event="secret_missing", name="AI_API_KEY")
 
     credential = DefaultAzureCredential()
+    store = None
+    if COSMOS_ENDPOINT:
+        store = (
+            CosmosClient(COSMOS_ENDPOINT, credential=credential)
+            .get_database_client(COSMOS_DATABASE)
+            .get_container_client(COSMOS_CONTAINER)
+        )
+
     with ServiceBusClient(fully_qualified_namespace=SERVICEBUS_FQDN, credential=credential) as client:
         with client.get_queue_receiver(queue_name=SERVICEBUS_QUEUE) as receiver:
             jlog(logging.INFO, event="listening", namespace=SERVICEBUS_FQDN, queue=SERVICEBUS_QUEUE)
@@ -72,7 +94,7 @@ def main() -> None:
                 for msg in batch:
                     try:
                         body = json.loads(str(msg))
-                        process(body)
+                        process(body, store)
                         receiver.complete_message(msg)
                     except json.JSONDecodeError:
                         # Poison message: retrying will never help, dead-letter immediately.

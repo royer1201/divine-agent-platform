@@ -7,6 +7,8 @@
 #   worker     AcrPull                         shared registry
 #   worker     Azure Service Bus Data Receiver the queue
 #   worker     Key Vault Secrets User          the single secret ai-api-key (not the vault)
+#   worker     Cosmos DB Built-in Data         the messages container (Cosmos data-plane
+#              Contributor                     RBAC, declared in modules/cosmos_db)
 #   scaler     Azure Service Bus Data Owner    the queue - KEDA reads queue runtime
 #                                              properties, which needs the Manage claim.
 #                                              Kept on a separate identity that the
