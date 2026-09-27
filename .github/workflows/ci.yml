@@ -29,10 +29,24 @@ jobs:
 
       - name: terraform validate
         run: |
+          rc=0
           for dir in infra/bootstrap infra/environment; do
             terraform -chdir="$dir" init -backend=false -input=false
-            terraform -chdir="$dir" validate
+            terraform -chdir="$dir" validate -json > validate.json || rc=1
+            # Errors and deprecation warnings become PR annotations on the offending line.
+            jq -r '.diagnostics[] | [
+                (if .severity == "error" then "error" else "warning" end),
+                (.range.filename // ""),
+                ((.range.start.line // 1) | tostring),
+                (.summary + ": " + ((.detail // "") | gsub("\n"; " ")))
+              ] | @tsv' validate.json |
+            while IFS=$'\t' read -r sev file line msg; do
+              [ -n "$file" ] && file="$(realpath -m --relative-to=. "$dir/$file")"
+              echo "::${sev} file=${file},line=${line}::${msg}"
+            done
           done
+          rm -f validate.json
+          exit "$rc"
 
       - name: Secret scan (gitleaks)
         run: |
@@ -57,11 +71,17 @@ jobs:
   plan-dev:
     needs: static-checks
     # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan,
-    # and only once bootstrap has configured the repository variables.
-    if: github.event.pull_request.head.repo.full_name == github.repository && vars.AZURE_CLIENT_ID_DEV != ''
+    # and only once bootstrap has configured the repository variables. Dependabot
+    # runs get neither Actions secrets nor an OIDC token, so they skip the plan too.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      vars.AZURE_CLIENT_ID_DEV != ''
     uses: ./.github/workflows/terraform.yml
     with:
       environment: dev
       action: plan
       image_tag: ${{ github.event.pull_request.head.sha }}
       client_id: ${{ vars.AZURE_CLIENT_ID_DEV }}
+    secrets:
+      alert_email: ${{ secrets.ALERT_EMAIL }}

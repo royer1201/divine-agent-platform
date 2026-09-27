@@ -9,7 +9,7 @@ resource "azurerm_key_vault" "this" {
 
   # Azure RBAC data-plane authorization instead of legacy access policies, so
   # secret access is granted per secret and audited like every other role.
-  enable_rbac_authorization = true
+  rbac_authorization_enabled = true
 
   soft_delete_retention_days = var.soft_delete_retention_days
   purge_protection_enabled   = var.purge_protection_enabled

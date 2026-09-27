@@ -3,7 +3,7 @@
 Inbound customer messages (WhatsApp / phone / web) hit a webhook, are queued on
 Azure Service Bus and processed by a worker that scales on queue length, down to
 zero. Everything is Terraform, deployed by GitHub Actions over OIDC, with **no
-secrets in the repo, in GitHub, or in app config**: every hop authenticates with
+credentials in the repo, in GitHub, or in app config**: every hop authenticates with
 Microsoft Entra ID (managed identities / workload identity federation).
 
 > **Reviewers:** start with [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — requirement map, security
@@ -140,10 +140,17 @@ printing `gh` commands. (Azure Cloud Shell works too: it already has `az`, `terr
 ### 2. Configure GitHub (once)
 
 Run the printed commands in your clone (`gh auth login` first). They set the repository
-variables, create the `dev` and `prod` environments and make you a required reviewer for prod.
+variables, create the `dev` and `prod` environments, restrict both to deployments from
+`main` and make you a required reviewer for prod.
 
-Every value is a non-secret identifier (tenant, subscription, client IDs, resource names),
-so they are repository **variables**. The repository has zero GitHub secrets.
+Every Azure value is a non-secret identifier (tenant, subscription, client IDs, resource
+names), so they are repository **variables**. There are no Azure credentials in GitHub.
+The single GitHub secret is `ALERT_EMAIL`: not a credential, but personal data, and this
+repository's run logs are public. Secrets are masked in logs; variables are not.
+
+Public-log hygiene: the alert email is a sensitive Terraform variable, and the webhook URL is
+a sensitive output that is masked before the smoke test uses it, so neither appears in plans,
+apply output or step logs.
 
 ### 3. Deploy
 

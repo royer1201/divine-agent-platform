@@ -25,9 +25,10 @@ on:
         description: Client ID of the environment's deployer identity
         required: true
         type: string
-    outputs:
-      api_url:
-        value: ${{ jobs.terraform.outputs.api_url }}
+    secrets:
+      alert_email:
+        description: DLQ alert recipient. A secret only so GitHub masks it in the public run logs.
+        required: true
 
 permissions:
   contents: read
@@ -43,8 +44,6 @@ jobs:
     concurrency:
       group: terraform-${{ inputs.environment }}
       cancel-in-progress: false
-    outputs:
-      api_url: ${{ steps.outputs.outputs.api_url }}
     defaults:
       run:
         working-directory: infra/environment
@@ -57,10 +56,19 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_image_tag: ${{ inputs.image_tag }}
       TF_VAR_acr_name: ${{ vars.ACR_NAME }}
-      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_alert_email: ${{ secrets.alert_email }}
       ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v7
+
+      # Fail in seconds with an actionable message instead of a provider
+      # validation error deep inside `terraform plan`.
+      - name: Check required secrets
+        run: |
+          if [ -z "${TF_VAR_alert_email}" ]; then
+            echo "::error title=ALERT_EMAIL secret missing::Set it once with: gh secret set ALERT_EMAIL"
+            exit 1
+          fi
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -103,7 +111,12 @@ jobs:
       - name: Read outputs
         id: outputs
         if: inputs.action == 'apply'
-        run: echo "api_url=$(terraform output -raw api_url)" >> "$GITHUB_OUTPUT"
+        # The repository is public, and so are its run logs. Mask the webhook URL so it
+        # cannot be scraped from here and used to flood the queue.
+        run: |
+          api_url="$(terraform output -raw api_url)"
+          echo "::add-mask::${api_url}"
+          echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test
         if: inputs.action == 'apply'

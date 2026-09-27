@@ -29,8 +29,14 @@ variable "image_tag" {
 }
 
 variable "alert_email" {
-  description = "Recipient of the dead-letter alert."
+  description = "Recipient of the dead-letter alert. Sensitive so it stays out of plans published to public run logs."
   type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address. In CI it comes from the ALERT_EMAIL secret."
+  }
 }
 
 # --- Service Bus -----------------------------------------------------------
