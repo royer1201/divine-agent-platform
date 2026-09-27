@@ -1,0 +1,42 @@
+# Manual teardown of one environment's workload (the resource group itself, state
+# storage, ACR and identities belong to bootstrap; see README "Teardown").
+name: destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        required: true
+        type: choice
+        options: [dev, prod]
+      confirm:
+        description: Type the environment name again to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm
+        if: inputs.confirm != inputs.environment
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          TARGET: ${{ inputs.environment }}
+        run: |
+          echo "::error::Confirmation '${CONFIRM}' does not match '${TARGET}'."
+          exit 1
+
+  destroy:
+    needs: guard
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: ${{ inputs.environment }}
+      action: destroy
+      image_tag: teardown
+      client_id: ${{ inputs.environment == 'prod' && vars.AZURE_CLIENT_ID_PROD || vars.AZURE_CLIENT_ID_DEV }}

@@ -1,0 +1,81 @@
+# main -> build & push images once -> deploy dev -> (approval) -> deploy prod.
+# The same immutable image tag (the commit SHA) is promoted between environments.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [api, worker]
+    env:
+      IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/${{ matrix.component }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # OIDC login as the build identity: it holds AcrPush on the registry and nothing else.
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_BUILD }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR with the Entra ID token
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: app/${{ matrix.component }}
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      - name: Scan for fixable critical CVEs
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push
+        run: docker push "${IMAGE}"
+
+  deploy-dev:
+    needs: build
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: dev
+      action: apply
+      image_tag: ${{ github.sha }}
+      client_id: ${{ vars.AZURE_CLIENT_ID_DEV }}
+
+  deploy-prod:
+    needs: deploy-dev
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: prod
+      action: apply
+      image_tag: ${{ github.sha }}
+      client_id: ${{ vars.AZURE_CLIENT_ID_PROD }}

@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars (git-ignored) and adjust.
+github_repository = "your-github-user/divine-agent-platform"
+location          = "westeurope"
+environments      = ["dev", "prod"]

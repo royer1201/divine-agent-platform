@@ -1,0 +1,54 @@
+# Pull requests: static checks, secret scan, image build, and a terraform plan for dev.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: terraform validate
+        run: |
+          for dir in infra/bootstrap infra/environment; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+
+      - name: Secret scan (gitleaks)
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 detect --source=/repo --no-git --redact --no-banner -v
+
+      - name: Build images (no push)
+        run: |
+          docker build -t api:ci app/api
+          docker build -t worker:ci app/worker
+
+  plan-dev:
+    needs: static-checks
+    # PRs from forks get no OIDC token for this repo, so only same-repo PRs plan.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: dev
+      action: plan
+      image_tag: ${{ github.event.pull_request.head.sha }}
+      client_id: ${{ vars.AZURE_CLIENT_ID_DEV }}

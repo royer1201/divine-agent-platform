@@ -1,0 +1,119 @@
+# Reusable: plan / apply / destroy the environment stack for one environment.
+# Called by ci.yml (plan on PRs), deploy.yml (apply dev -> prod) and destroy.yml.
+#
+# Azure auth is GitHub OIDC -> user-assigned managed identity (federated credential).
+# There are no Azure secrets in GitHub: client/tenant/subscription IDs are plain
+# repository variables, and the token is minted per job and expires in minutes.
+name: terraform
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: dev | prod
+        required: true
+        type: string
+      action:
+        description: plan | apply | destroy
+        required: true
+        type: string
+      image_tag:
+        description: Immutable image tag (git SHA) to deploy
+        required: true
+        type: string
+      client_id:
+        description: Client ID of the environment's deployer identity
+        required: true
+        type: string
+    outputs:
+      api_url:
+        value: ${{ jobs.terraform.outputs.api_url }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform:
+    name: ${{ inputs.action }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    # plan runs without a GitHub environment (OIDC subject "pull_request");
+    # apply/destroy run inside it, so protection rules such as required reviewers apply.
+    environment: ${{ inputs.action != 'plan' && inputs.environment || '' }}
+    concurrency:
+      group: terraform-${{ inputs.environment }}
+      cancel-in-progress: false
+    outputs:
+      api_url: ${{ steps.outputs.outputs.api_url }}
+    defaults:
+      run:
+        working-directory: infra/environment
+    env:
+      ARM_CLIENT_ID: ${{ inputs.client_id }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_image_tag: ${{ inputs.image_tag }}
+      TF_VAR_acr_name: ${{ vars.ACR_NAME }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: terraform init
+        env:
+          TFSTATE_RG: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_SA: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+        run: >
+          terraform init
+          -backend-config="resource_group_name=${TFSTATE_RG}"
+          -backend-config="storage_account_name=${TFSTATE_SA}"
+          -backend-config="container_name=tfstate-${ENVIRONMENT}"
+          -backend-config="key=environment.tfstate"
+
+      - name: terraform plan
+        if: inputs.action != 'destroy'
+        run: terraform plan -var-file="environments/${ENVIRONMENT}.tfvars" -out=tfplan
+
+      - name: Publish plan to the job summary
+        if: inputs.action == 'plan'
+        run: |
+          {
+            echo "### Terraform plan: ${ENVIRONMENT}"
+            echo '```'
+            terraform show -no-color tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply tfplan
+
+      - name: terraform destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -var-file="environments/${ENVIRONMENT}.tfvars"
+
+      - name: Read outputs
+        id: outputs
+        if: inputs.action == 'apply'
+        run: echo "api_url=$(terraform output -raw api_url)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        if: inputs.action == 'apply'
+        env:
+          API_URL: ${{ steps.outputs.outputs.api_url }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors "${API_URL}/health"
+          echo
+          curl --fail --silent --show-error -X POST "${API_URL}/webhook/message" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\":\"github-actions\",\"sha\":\"${IMAGE_TAG}\"}"
+          echo
