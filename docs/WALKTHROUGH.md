@@ -70,7 +70,8 @@ Deployed by the pipeline (no portal clicks) to `rg-divine-dev`, then exercised f
 | `AI_API_KEY` from Key Vault | loaded; only a SHA-256 prefix is logged (`33ffcfd1`) |
 | Poison message (`simulate_failure: true`) | 5 deliveries → **dead-lettered** (DLQ = 2) |
 | DLQ alert | **Fired** (Sev 2) → email |
-| Scale to zero | worker 0 → 1 → **0**, graceful SIGTERM shutdown logged |
+| KEDA scale-out | 1500 webhooks (60 in parallel) → **1500 × HTTP 202**; worker **0 → 5 replicas** (dev max) |
+| Scale to zero | worker back to **0**, graceful SIGTERM shutdown logged |
 | Terraform plan on PRs over OIDC (`pull_request` subject) | ✅ |
 
 ## 5. Three real problems the live run caught
@@ -95,7 +96,6 @@ is torn down after review (README → Teardown).
 ## 7. Known gaps and next steps
 
 - Bootstrap state is local (backed up to the state account); move it to the remote backend.
-- Commit the provider lock files (`.terraform.lock.hcl`).
-- Mask the alert e-mail and webhook URL in public run logs (open PR), plus pin actions to SHAs.
+- Pin third-party GitHub Actions to commit SHAs.
 - Private networking, Front Door + WAF, webhook signature validation, OpenTelemetry tracing and
   SLO alerts — see "What I would change in a real production environment" in the README.
